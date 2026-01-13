@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>API Test Generator</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* Делаем пункты выпадающих списков читаемыми при тёмной теме */
+    select option {
+      color: #020617;
+      /* text-slate-900 */
+      background: #ffffff;
+      /* белый фон для списка опций */
+    }
+  </style>
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState } = React;
+
+    function APITestGenerator() {
+      const [file, setFile] = useState(null);
+      const [docUrl, setDocUrl] = useState('');
+      const [language, setLanguage] = useState('python');
+      const [framework, setFramework] = useState('pytest');
+      const [loading, setLoading] = useState(false);
+      const [generatedTests, setGeneratedTests] = useState('');
+      const [error, setError] = useState('');
+      const [success, setSuccess] = useState('');
+      const [docContent, setDocContent] = useState('');
+      const [uiLanguage, setUiLanguage] = useState('ru'); // 'ru' или 'en'
+
+      const languages = {
+        python: ['pytest', 'unittest'],
+        javascript: ['jest', 'mocha'],
+        java: ['junit', 'testng'],
+        csharp: ['nunit', 'xunit'],
+        go: ['testing', 'testify']
+      };
+
+      // Переводы интерфейса
+      const translations = {
+        ru: {
+          title: 'API Test Generator',
+          subtitle: 'Генерация автотестов из документации контракта API',
+          settings: 'Настройки',
+          apiDocFile: 'Документация API (файл OpenAPI/Swagger, JSON, TXT, MD)',
+          selectFile: 'Выбрать файл',
+          fileOrUrlHint: 'Можно также указать URL контракта ниже — будет использован либо файл, либо ссылка.',
+          contractUrl: 'Ссылка на контракт (URL)',
+          urlPlaceholder: 'https://example.com/openapi.yaml',
+          programmingLanguage: 'Язык программирования',
+          testFramework: 'Тестовый фреймворк',
+          generateTests: 'Сгенерировать тесты',
+          generating: 'Генерация...',
+          generatedTests: 'Сгенерированные тесты',
+          copy: 'Копировать',
+          download: 'Скачать',
+          testsWillAppear: 'Тесты появятся здесь после генерации',
+          howToUse: 'Как использовать:',
+          step1: 'Загрузите файл с документацией API (OpenAPI/Swagger, JSON, Markdown или текст), либо укажите ссылку на контракт',
+          step2: 'Выберите язык программирования и тестовый фреймворк',
+          step3: 'Нажмите "Сгенерировать тесты" и дождитесь результата',
+          step4: 'Скопируйте или скачайте готовые тесты',
+          errorNoDoc: 'Укажите либо файл с документацией API, либо ссылку на контракт',
+          errorNetwork: 'Ошибка сети: Убедитесь, что Flask сервер запущен на http://localhost:5000',
+          errorRateLimit: 'Ошибка: Превышен лимит запросов. Подождите немного и попробуйте снова.',
+          errorFormat: 'Неверный формат ответа от сервера',
+          successGenerated: 'Тесты успешно сгенерированы!',
+          successCopied: 'Скопировано в буфер обмена!',
+          errorCopy: 'Не удалось скопировать в буфер обмена'
+        },
+        en: {
+          title: 'API Test Generator',
+          subtitle: 'Generate automated tests from API contract documentation',
+          settings: 'Settings',
+          apiDocFile: 'API Documentation (OpenAPI/Swagger, JSON, TXT, MD file)',
+          selectFile: 'Select file',
+          fileOrUrlHint: 'You can also specify a contract URL below — either file or URL will be used.',
+          contractUrl: 'Contract URL',
+          urlPlaceholder: 'https://example.com/openapi.yaml',
+          programmingLanguage: 'Programming language',
+          testFramework: 'Test framework',
+          generateTests: 'Generate tests',
+          generating: 'Generating...',
+          generatedTests: 'Generated tests',
+          copy: 'Copy',
+          download: 'Download',
+          testsWillAppear: 'Tests will appear here after generation',
+          howToUse: 'How to use:',
+          step1: 'Upload a file with API documentation (OpenAPI/Swagger, JSON, Markdown or text), or specify a contract URL',
+          step2: 'Select programming language and test framework',
+          step3: 'Click "Generate tests" and wait for the result',
+          step4: 'Copy or download the generated tests',
+          errorNoDoc: 'Please specify either an API documentation file or a contract URL',
+          errorNetwork: 'Network error: Make sure Flask server is running on http://localhost:5000',
+          errorRateLimit: 'Error: Rate limit exceeded. Please wait a moment and try again.',
+          errorFormat: 'Invalid server response format',
+          successGenerated: 'Tests generated successfully!',
+          successCopied: 'Copied to clipboard!',
+          errorCopy: 'Failed to copy to clipboard'
+        }
+      };
+
+      const t = translations[uiLanguage];
+
+      const handleFileUpload = async (e) => {
+        const uploadedFile = e.target.files[0];
+        if (!uploadedFile) return;
+
+        setFile(uploadedFile);
+        setError('');
+        setSuccess('');
+        setGeneratedTests('');
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          setDocContent(event.target.result);
+        };
+        reader.readAsText(uploadedFile);
+      };
+
+      // Автоматическое определение URL API
+      const getApiUrl = () => {
+        // Если запущено на том же домене (production), используем относительный путь
+        if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+          return '/api/generate';
+        }
+        // Для локальной разработки
+        return 'http://localhost:5000/api/generate';
+      };
+
+      const generateTests = async () => {
+        if (!docContent && !docUrl) {
+          setError(t.errorNoDoc);
+          return;
+        }
+
+        setLoading(true);
+        setError('');
+        setSuccess('');
+        setGeneratedTests('');
+
+        try {
+          const response = await fetch(getApiUrl(), {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              doc_content: docContent || null,
+              doc_url: docUrl || null,
+              language: language,
+              framework: framework,
+              comment_language: uiLanguage // Передаём язык для комментариев
+            })
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+          }
+
+          const data = await response.json();
+
+          if (!data.tests) {
+            throw new Error(t.errorFormat);
+          }
+
+          setGeneratedTests(data.tests);
+          setSuccess(t.successGenerated);
+        } catch (err) {
+          console.error('API Error:', err);
+
+          if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+            setError(t.errorNetwork);
+          } else if (err.message.includes('429')) {
+            setError(t.errorRateLimit);
+          } else {
+            setError(`Ошибка: ${err.message}`);
+          }
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const copyToClipboard = async () => {
+        try {
+          await navigator.clipboard.writeText(generatedTests);
+          setSuccess(t.successCopied);
+          setTimeout(() => setSuccess(''), 3000);
+        } catch (err) {
+          setError(t.errorCopy);
+        }
+      };
+
+      const downloadTests = () => {
+        const extensions = {
+          python: 'py',
+          javascript: 'js',
+          java: 'java',
+          csharp: 'cs',
+          go: 'go'
+        };
+
+        const blob = new Blob([generatedTests], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `api_tests.${extensions[language]}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      };
+
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-6">
+          <div className="max-w-6xl mx-auto">
+            {/* Переключатель языка в правом верхнем углу */}
+            <div className="flex justify-end mb-4">
+              <div className="flex gap-2 bg-white/10 backdrop-blur-lg rounded-lg p-1 border border-white/20">
+                <button
+                  onClick={() => setUiLanguage('ru')}
+                  className={`px-4 py-2 rounded transition-colors ${uiLanguage === 'ru'
+                    ? 'bg-purple-600 text-white'
+                    : 'text-purple-200 hover:text-white'
+                    }`}
+                >
+                  Русский
+                </button>
+                <button
+                  onClick={() => setUiLanguage('en')}
+                  className={`px-4 py-2 rounded transition-colors ${uiLanguage === 'en'
+                    ? 'bg-purple-600 text-white'
+                    : 'text-purple-200 hover:text-white'
+                    }`}
+                >
+                  English
+                </button>
+              </div>
+            </div>
+
+            <div className="text-center mb-8">
+              <h1 className="text-4xl font-bold text-white mb-2 flex items-center justify-center gap-3">
+                <span className="text-purple-300 text-3xl">&lt;/&gt;</span>
+                {t.title}
+              </h1>
+              <p className="text-purple-200">{t.subtitle}</p>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20">
+                <div className="mb-4">
+                  <label className="block text-purple-200 mb-2 text-sm font-medium">
+                    {t.apiDocFile}
+                  </label>
+                  <div className="relative mb-2">
+                    <input
+                      type="file"
+                      onChange={handleFileUpload}
+                      accept=".json,.yaml,.yml,.txt,.md"
+                      className="hidden"
+                      id="file-upload"
+                    />
+                    <label
+                      htmlFor="file-upload"
+                      className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg cursor-pointer transition-colors"
+                    >
+                      <span>📁</span>
+                      <span className="truncate">{file ? file.name : t.selectFile}</span>
+                    </label>
+                  </div>
+                  <p className="text-xs text-purple-300">
+                    {t.fileOrUrlHint}
+                  </p>
+                </div>
+
+                <div className="mb-4">
+                  <label className="block text-purple-200 mb-2 text-sm font-medium">
+                    {t.contractUrl}
+                  </label>
+                  <input
+                    type="url"
+                    value={docUrl}
+                    onChange={(e) => setDocUrl(e.target.value)}
+                    placeholder={t.urlPlaceholder}
+                    className="w-full px-4 py-2 bg-white/5 border border-white/20 rounded-lg text-white placeholder-purple-300/50 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+
+                <div className="mb-4">
+                  <label className="block text-purple-200 mb-2 text-sm font-medium">
+                    {t.programmingLanguage}
+                  </label>
+                  <select
+                    value={language}
+                    onChange={(e) => {
+                      setLanguage(e.target.value);
+                      setFramework(languages[e.target.value][0]);
+                    }}
+                    className="w-full px-4 py-2 bg-white/5 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  >
+                    <option value="python">Python</option>
+                    <option value="javascript">JavaScript</option>
+                    <option value="java">Java</option>
+                    <option value="csharp">C#</option>
+                    <option value="go">Go</option>
+                  </select>
+                </div>
+
+                <div className="mb-6">
+                  <label className="block text-purple-200 mb-2 text-sm font-medium">
+                    {t.testFramework}
+                  </label>
+                  <select
+                    value={framework}
+                    onChange={(e) => setFramework(e.target.value)}
+                    className="w-full px-4 py-2 bg-white/5 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  >
+                    {languages[language].map((fw) => (
+                      <option key={fw} value={fw}>{fw}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <button
+                  onClick={generateTests}
+                  disabled={loading || (!file && !docUrl)}
+                  className="w-full px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-semibold rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {loading ? (
+                    <>
+                      <span className="animate-spin">⏳</span>
+                      {t.generating}
+                    </>
+                  ) : (
+                    <>
+                      <span>▶</span>
+                      {t.generateTests}
+                    </>
+                  )}
+                </button>
+
+                {error && (
+                  <div className="mt-4 p-3 bg-red-500/20 border border-red-500/50 rounded-lg flex items-start gap-2">
+                    <span className="text-red-400 mt-0.5">⚠️</span>
+                    <p className="text-red-200 text-sm">{error}</p>
+                  </div>
+                )}
+
+                {success && (
+                  <div className="mt-4 p-3 bg-green-500/20 border border-green-500/50 rounded-lg flex items-start gap-2">
+                    <span className="text-green-400 mt-0.5">✅</span>
+                    <p className="text-green-200 text-sm">{success}</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-xl font-semibold text-white flex items-center gap-2">
+                    <span className="text-purple-300">📄</span>
+                    {t.generatedTests}
+                  </h2>
+                  {generatedTests && (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={copyToClipboard}
+                        className="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg transition-colors flex items-center gap-1"
+                        title={t.copy}
+                      >
+                        <span>📋</span>
+                        {t.copy}
+                      </button>
+                      <button
+                        onClick={downloadTests}
+                        className="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg transition-colors flex items-center gap-1"
+                        title={t.download}
+                      >
+                        <span>💾</span>
+                        {t.download}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-slate-900 rounded-lg p-4 h-[600px] overflow-auto">
+                  {generatedTests ? (
+                    <pre className="text-green-400 text-sm font-mono whitespace-pre-wrap">
+                      {generatedTests}
+                    </pre>
+                  ) : (
+                    <div className="flex items-center justify-center h-full text-purple-300/50">
+                      <div className="text-center">
+                        <div className="text-5xl mb-4 opacity-50">&lt;/&gt;</div>
+                        <p>{t.testsWillAppear}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20">
+              <h3 className="text-lg font-semibold text-white mb-3">{t.howToUse}</h3>
+              <ol className="text-purple-200 space-y-2 list-decimal list-inside">
+                <li>{t.step1}</li>
+                <li>{t.step2}</li>
+                <li>{t.step3}</li>
+                <li>{t.step4}</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<APITestGenerator />);
+  </script>
+</body>
+
+</html>
