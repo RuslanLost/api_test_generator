@@ -127,15 +127,12 @@
         reader.readAsText(uploadedFile);
       };
 
-      // Автоматическое определение URL API
-      const getApiUrl = () => {
-        // Если запущено на том же домене (production), используем относительный путь
-        if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-          return '/api/generate';
-        }
-        // Для локальной разработки
-        return 'http://localhost:5000/api/generate';
-      };
+      const API_BASE =
+        window.location.hostname === 'localhost'
+          ? 'http://localhost:5000'
+          : 'https://api-test-generator.onrender.com';
+
+      const getApiUrl = () => `${API_BASE}/api/generate`;
 
       const generateTests = async () => {
         if (!docContent && !docUrl) {
